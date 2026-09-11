@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>웹 테트리스 게임 (cat.png 양옆 춤추기 적용)</title>
+    <title>웹 테트리스 게임 (줄 삭제 점수 및 3배 콤보 적용)</title>
     <style>
         * {
             box-sizing: border-box;
@@ -24,13 +24,13 @@
             position: relative;
         }
 
-        /* 양옆에서 적당한 사이즈로 춤추는 cat.png 배경 고양이 스타일 */
+        /* 양옆에서 춤추는 고양이 배경 이미지 */
         .dancing-cat {
             position: absolute;
-            width: 130px; /* 적당한 사이즈 */
+            width: 130px;
             height: auto;
-            opacity: 0.75; /* 배경을 다 가리지 않도록 투명도 설정 */
-            z-index: 1; /* 게임판 뒤 또는 주변에 위치하되 컨테이너보다는 뒤에 오게 설정 */
+            opacity: 0.75;
+            z-index: 1;
             pointer-events: none;
         }
 
@@ -79,7 +79,7 @@
             border-radius: 12px;
             box-shadow: 0 10px 30px rgba(0,0,0,0.7);
             border: 1px solid rgba(255, 255, 255, 0.1);
-            z-index: 2; /* 고양이보다 위쪽에 오도록 설정 */
+            z-index: 2;
         }
         .game-area {
             display: flex;
@@ -180,7 +180,7 @@
     <!-- 배경음악 오디오 태그 -->
     <audio id="bgm" src="bgm.mp3" preload="auto" loop></audio>
 
-    <!-- 양옆에서 춤추는 고양이 배경 이미지 (todo.png 배경 위, 게임판 양옆에 배치) -->
+    <!-- 양옆에서 춤추는 고양이 배경 이미지 -->
     <img src="cat.png" alt="Dancing Cat Left" class="dancing-cat cat-left">
     <img src="cat.png" alt="Dancing Cat Right" class="dancing-cat cat-right">
 
@@ -243,7 +243,9 @@
         nextContext.scale(15, 15);
 
         function arenaSweep() {
-            let rowCount = 1;
+            let clearedLines = 0;
+            
+            // 완성된 줄을 찾아 제거
             outer: for (let y = arena.length - 1; y > 0; --y) {
                 for (let x = 0; x < arena[y].length; ++x) {
                     if (arena[y][x] === 0) {
@@ -253,9 +255,26 @@
                 const row = arena.splice(y, 1)[0].fill(0);
                 arena.unshift(row);
                 ++y;
+                clearedLines++;
+            }
 
-                player.score += rowCount * 10;
-                rowCount *= 2;
+            if (clearedLines > 0) {
+                // 1줄=10, 2줄=20, 3줄=30점 기본 계산
+                let basePoints = clearedLines * 10;
+
+                // 연속으로 줄을 없앴다면(콤보 중이라면) 직전 획득 점수의 3배 적용
+                if (player.combo > 0) {
+                    player.lastEarnedScore = player.lastEarnedScore * 3;
+                } else {
+                    player.lastEarnedScore = basePoints;
+                }
+
+                player.score += player.lastEarnedScore;
+                player.combo++; // 콤보 증가
+            } else {
+                // 이번에 줄을 못 없애고 블록이 쌓였다면 콤보 초기화
+                // (단, 블록이 고정되는 시점에 호출되므로 줄이 안 지워졌으면 콤보 리셋)
+                player.combo = 0;
             }
         }
 
@@ -324,16 +343,46 @@
             }
         }
 
+        // 둥글고 입체적인 블록 조각 그리기 함수
+        function drawShinyBlock(ctx, x, y, color) {
+            ctx.save();
+            ctx.translate(x, y);
+
+            const radius = 0.2;
+            ctx.beginPath();
+            ctx.moveTo(radius, 0);
+            ctx.lineTo(1 - radius, 0);
+            ctx.quadraticCurveTo(1, 0, 1, radius);
+            ctx.lineTo(1, 1 - radius);
+            ctx.quadraticCurveTo(1, 1, 1 - radius, 1);
+            ctx.lineTo(radius, 1);
+            ctx.quadraticCurveTo(0, 1, 0, 1 - radius);
+            ctx.lineTo(0, radius);
+            ctx.quadraticCurveTo(0, 0, radius, 0);
+            ctx.closePath();
+
+            ctx.fillStyle = color;
+            ctx.fill();
+
+            const grad = ctx.createLinearGradient(0, 0, 0, 1);
+            grad.addColorStop(0, 'rgba(255, 255, 255, 0.4)');
+            grad.addColorStop(0.5, 'rgba(255, 255, 255, 0.05)');
+            grad.addColorStop(1, 'rgba(0, 0, 0, 0.3)');
+            ctx.fillStyle = grad;
+            ctx.fill();
+
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.4)';
+            ctx.lineWidth = 0.06;
+            ctx.stroke();
+
+            ctx.restore();
+        }
+
         function drawMatrix(matrix, offset, ctx = context) {
             matrix.forEach((row, y) => {
                 row.forEach((value, x) => {
                     if (value !== 0) {
-                        ctx.fillStyle = colors[value];
-                        ctx.fillRect(x + offset.x, y + offset.y, 1, 1);
-                        
-                        ctx.strokeStyle = '#111';
-                        ctx.lineWidth = 0.05;
-                        ctx.strokeRect(x + offset.x, y + offset.y, 1, 1);
+                        drawShinyBlock(ctx, x + offset.x, y + offset.y, colors[value]);
                     }
                 });
             });
@@ -509,6 +558,8 @@
             holdMatrix: null,
             canHold: true,
             score: 0,
+            combo: 0,
+            lastEarnedScore: 0,
         };
 
         window.addEventListener('keydown', event => {
@@ -531,6 +582,8 @@
         function startGame() {
             arena.forEach(row => row.fill(0));
             player.score = 0;
+            player.combo = 0;
+            player.lastEarnedScore = 0;
             player.holdMatrix = null;
             player.canHold = true;
             updateScore();
@@ -557,6 +610,9 @@
         restartBtn.addEventListener('click', () => {
             startGame();
         });
+
+        // 초기 화면 그리기
+        draw();
     </script>
 </body>
 </html>
